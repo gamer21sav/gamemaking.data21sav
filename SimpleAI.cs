@@ -4,87 +4,96 @@ using UnityEngine.AI;
 public class SimpleAI : MonoBehaviour
 {
     public Transform player;
-// 🟩 **PUBLIC SETTINGS** (Visible in Inspector)
-[Header("Combat")]
-public float attackrange = 2, detectrange = 8f;
-public float attackdamage = 10f, attackcooldown = 1f;
-public float fieldOfView = 180f;
-public Transform eyes;
-public LayerMask obstacleMask;
 
-    [Header("Vision")]                       // NEW
-    public float sightRange = 25f;          // long raycast — goes past roam AND detect
-    public float faceAngle = 45f;           // how closely it must face you before investigating
+    // ─── PUBLIC SETTINGS ────────────────────────────────
 
-    [Header("Speeds")]                       // NEW
-    public float runSpeed = 6f;  
+    [Header("Combat")]
+    public float attackrange = 2f;
+    public float detectrange = 8f;
+    public float attackdamage = 10f;
+    public float attackcooldown = 1f;
+    public float fieldOfView = 180f;
+    public Transform eyes;
+    public LayerMask obstacleMask;
 
-// 🟦 **ROAM SETTINGS**
-[Header("Roam")]
-public float roamRadius = 15f;
-public float roamInterval = 4f;
+    [Header("Vision")]
+    public float sightRange = 25f;    // long raycast, extends past roam and detect ranges
+    public float faceAngle = 45f;     // how closely the agent must face the player before investigating
 
-// 🟧 **PRIVATE STATE**
-private float lastattacktime = 0f;
-private NavMeshAgent agent;
-private Vector3 lastseenposition, homeposition;
-private Health playerhealth;
-private bool canseeplayer = false;
+    [Header("Speeds")]
+    public float runSpeed = 6f;       // sprint speed when charging to attack
 
-private float nextRoamTime;
-private Vector3 roamTarget;
-private bool hasRoamTarget = false;
-private bool hasSeenPlayer = false;
+    [Header("Roam")]
+    public float roamRadius = 15f;
+    public float roamInterval = 4f;
 
-private float walkSpeed;
-// 🟨 **STARTUP**
+    // ─── PRIVATE STATE ──────────────────────────────────
+
+    private float lastattacktime = 0f;
+    private NavMeshAgent agent;
+    private Vector3 lastseenposition;
+    private Vector3 homeposition;
+    private Health playerhealth;
+    private bool canseeplayer = false;
+    private bool hasSeenPlayer = false;
+    private float walkSpeed;
+
+    private float nextRoamTime;
+    private Vector3 roamTarget;
+    private bool hasRoamTarget = false;
+
+    // ─── STARTUP ────────────────────────────────────────
 void Start()
-{
-    agent = GetComponent<NavMeshAgent>();
-    playerhealth = player.GetComponent<Health>();
-    lastseenposition = player.position;
-    homeposition = transform.position;
-    walkSpeed = agent.speed;
-    if (!agent.isOnNavMesh)
     {
-        Debug.LogError($"{name} is Not on the navmesh! Re-bake or fix spawn position.");
-    }
-}
-// 🟣 **UPDATE LOOP**
-    void Update()
-    {
-    if (player == null) return;
-
-    canseeplayer = Canseeplayer();
-
-    // ✅ FIX: Only update lastseenposition when player is visible
-    if (canseeplayer)
-    {
+        agent = GetComponent<NavMeshAgent>();
+        playerhealth = player.GetComponent<Health>();
         lastseenposition = player.position;
-        hasSeenPlayer = true;
-    }
+        homeposition = transform.position;
+        walkSpeed = agent.speed;
 
-    float distance = Vector3.Distance(transform.position, player.position);
-
-    if (distance <= attackrange && canseeplayer)
-    {
-        agent.isStopped = true;
-        transform.LookAt(player);
-        if (Time.time - lastattacktime >= attackcooldown)
+        if (!agent.isOnNavMesh)
         {
-            playerhealth.Takedamage(attackdamage);
-            lastattacktime = Time.time;
+            Debug.LogError($"{name} is not on the navmesh! Re-bake or fix the spawn position.");
         }
     }
-    else
+   // ─── UPDATE LOOP ────────────────────────────────────
+    void Update()
     {
-        PlayerInRoamRadius();
+        if (player == null) return;
+
+        canseeplayer = Canseeplayer();
+
+        // Record the player's position only while visible
+        if (canseeplayer)
+        {
+            lastseenposition = player.position;
+            hasSeenPlayer = true;
+        }
+
+        float distance = Vector3.Distance(transform.position, player.position);
+
+        if (distance <= attackrange && canseeplayer)
+        {
+            agent.isStopped = true;
+            transform.LookAt(player);
+            if (Time.time - lastattacktime >= attackcooldown)
+            {
+                playerhealth.Takedamage(attackdamage);
+                lastattacktime = Time.time;
+            }
+        }
+        else
+        {
+            PlayerInRoamRadius();
+        }
     }
-    }
-     void PlayerInRoamRadius()
+    // ─── MAIN BEHAVIOR ──────────────────────────────────
+    void PlayerInRoamRadius()
     {
-    float distance = Vector3.Distance(transform.position, player.position);
-    if(canseeplayer && IsFacingPlayer())
+        float distance = Vector3.Distance(transform.position, player.position);
+
+        // Seeing the player and facing them: chase, sprinting inside detect range
+        if (canseeplayer && IsFacingPlayer())
         {
             agent.speed = (distance < detectrange) ? runSpeed : walkSpeed;
             hasRoamTarget = false;
@@ -94,19 +103,18 @@ void Start()
         }
         agent.speed = walkSpeed;
 
-    if (distance <= roamRadius)
-    {
-        SmoothTurnTowardPlayer();
-
-        if (canseeplayer)
+        if (distance <= roamRadius)
         {
-            // Chase player directly
-            agent.isStopped = true;
-            return;
-        }
-        
-        
-            // Player invisible — walk to last seen position
+            SmoothTurnTowardPlayer();
+
+            if (canseeplayer)
+            {
+                // Visible but not facing yet: hold still while turning
+                agent.isStopped = true;
+                return;
+            }
+
+            // Lost sight: investigate the last known position
             if (hasSeenPlayer && Vector3.Distance(transform.position, lastseenposition) > 1f)
             {
                 agent.isStopped = false;
@@ -114,19 +122,18 @@ void Start()
                 return;
             }
 
-            // Arrived — resume roaming
-            hasRoamTarget = false;
+            // Nothing found: resume roaming
             hasRoamTarget = false;
             Roam();
-        
+        }
+        else
+        {
+            nextRoamTime = 0f;
+            agent.isStopped = false;
+            Roam();
+        }
     }
-    else
-    {
-        nextRoamTime = 0f;
-        agent.isStopped = false;
-        Roam();
-    }
-    }
+    // ─── HELPERS ────────────────────────────────────────
     void SmoothTurnTowardPlayer()
     {
         Vector3 direction = player.position - transform.position;
@@ -137,7 +144,6 @@ void Start()
             transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, 0.05f);
         }
     }
-
     void Roam()
     {
     if (hasRoamTarget)
@@ -165,35 +171,41 @@ void Start()
         Debug.LogWarning($"{name}: no navmesh found within {roamRadius}m of {homeposition}", this);
     }
     }
-
-
     void OnDrawGizmos()
     {
+               Vector3 pos = transform.position;
+
         Gizmos.color = Color.blue;
-        Gizmos.DrawWireSphere(transform.position, attackrange);
+        Gizmos.DrawWireSphere(pos, attackrange);
 
         Gizmos.color = Color.red;
-        Gizmos.DrawWireSphere(transform.position, detectrange);
+        Gizmos.DrawWireSphere(pos, detectrange);
 
         Gizmos.color = Color.green;
-        Gizmos.DrawWireSphere(transform.position, roamRadius);
+        Gizmos.DrawWireSphere(Application.isPlaying ? homeposition : pos, roamRadius);
 
-        Gizmos.color = Color.black;                     // long sight range
-        Gizmos.DrawWireSphere(transform.position, sightRange);
+        Gizmos.color = Color.black;
+        Gizmos.DrawWireSphere(pos, sightRange);
 
-        Gizmos.color = Color.yellow;                    // facing direction
-        Gizmos.DrawRay(transform.position, transform.forward * sightRange);
+        // Field of view edges
+        Gizmos.color = Color.yellow;
+        Vector3 left = Quaternion.Euler(0, -fieldOfView * 0.5f, 0) * transform.forward;
+        Vector3 right = Quaternion.Euler(0, fieldOfView * 0.5f, 0) * transform.forward;
+        Gizmos.DrawRay(pos, left * sightRange);
+        Gizmos.DrawRay(pos, right * sightRange);
     }
-    bool Canseeplayer()
+bool Canseeplayer()
     {
-    Vector3 toPlayer = player.position - transform.position;
-    if (toPlayer.sqrMagnitude > sightRange * sightRange) return false;
-    if(Vector3.Angle(transform.forward, toPlayer) > fieldOfView * 0.5f) return false;
+        Vector3 toPlayer = player.position - transform.position;
+        if (toPlayer.sqrMagnitude > sightRange * sightRange) return false;
+        if (Vector3.Angle(transform.forward, toPlayer) > fieldOfView * 0.5f) return false;
 
         Vector3 origin = eyes != null ? eyes.position : transform.position + Vector3.up * 1.5f;
         Vector3 target = player.position + Vector3.up * 1f;
-        float dist = Vector3.Distance(origin,target);
-        if(Physics.Raycast(origin, (target - origin).normalized, out RaycastHit hit, dist, obstacleMask)) return false; return true;
+        float dist = Vector3.Distance(origin, target);
+
+        if (Physics.Raycast(origin, (target - origin).normalized, out RaycastHit hit, dist, obstacleMask)) return false;
+        return true;
     }
         bool IsFacingPlayer()
     {
@@ -202,4 +214,5 @@ void Start()
         if (toPlayer.sqrMagnitude < 0.01f) return true;
         return Vector3.Angle(transform.forward, toPlayer) <= faceAngle;
     }
+
 }
