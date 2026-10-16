@@ -24,7 +24,6 @@ public class SimpleMove : MonoBehaviour
     private float pitch;
     private float yaw;
     private Vector3 velocity;   // only the vertical part is used here
-    private bool wasGrounded;
 
     // Animator parameter names (must match the Animator Controller exactly)
     static readonly int IsMoveHash = Animator.StringToHash("Ismove");
@@ -32,11 +31,11 @@ public class SimpleMove : MonoBehaviour
     static readonly int GroundedHash = Animator.StringToHash("Grounded");
     static readonly int VerticalHash = Animator.StringToHash("VerticalVelocity");
 
+    // ─── STARTUP AND UPDATE ─────────────────────────────
+
     void Start()
     {
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
-
+        SetCursor(true);
         animator = GetComponent<Animator>();
         if (cc == null) cc = GetComponent<CharacterController>();
         if (cam == null && Camera.main != null) cam = Camera.main.transform;
@@ -46,16 +45,8 @@ public class SimpleMove : MonoBehaviour
     {
         if (cc == null || cam == null) return;
 
-        if (Input.GetKeyDown(KeyCode.Escape))
-        {
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
-        }
-        if (Input.GetMouseButtonDown(0) && Cursor.lockState != CursorLockMode.Locked)
-        {
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
-        }
+        if (Input.GetKeyDown(KeyCode.Escape)) SetCursor(false);
+        if (Input.GetMouseButtonDown(0) && Cursor.lockState != CursorLockMode.Locked) SetCursor(true);
 
         HandleJumpAndGravity();
         HandleMovement();
@@ -80,13 +71,12 @@ public class SimpleMove : MonoBehaviour
         HandleCamera();
     }
 
+    // ─── MOVEMENT ───────────────────────────────────────
+
     void HandleJumpAndGravity()
     {
         bool grounded = cc.isGrounded;
-
-        // Keep a small downward force while grounded so the controller sticks to slopes
-        if (grounded && velocity.y < 0f)
-            velocity.y = -2f;
+        if (grounded && velocity.y < 0f) velocity.y = -2f;   // keeps the controller stuck to slopes
 
         if (grounded && Input.GetKeyDown(KeyCode.Space))
         {
@@ -95,7 +85,6 @@ public class SimpleMove : MonoBehaviour
         }
 
         velocity.y += gravity * Time.deltaTime;
-        wasGrounded = grounded;
     }
 
     void HandleMovement()
@@ -105,7 +94,6 @@ public class SimpleMove : MonoBehaviour
 
         Vector3 camForward = Vector3.ProjectOnPlane(cam.forward, Vector3.up).normalized;
         Vector3 camRight = Vector3.ProjectOnPlane(cam.right, Vector3.up).normalized;
-
         Vector3 moveDirection = camRight * x + camForward * z;
         if (moveDirection.sqrMagnitude > 1f) moveDirection.Normalize();
 
@@ -120,14 +108,12 @@ public class SimpleMove : MonoBehaviour
         cc.Move(move * Time.deltaTime);
     }
 
+    // ─── CAMERA AND AIMING ──────────────────────────────
+
     void HandleCamera()
     {
-        float mouseX = Input.GetAxis("Mouse X");
-        float mouseY = Input.GetAxis("Mouse Y");
-
-        pitch = Mathf.Clamp(pitch - mouseY * mouseSensitivity, -90f, 90f);
-        yaw += mouseX * mouseSensitivity;
-
+        pitch = Mathf.Clamp(pitch - Input.GetAxis("Mouse Y") * mouseSensitivity, -90f, 90f);
+        yaw += Input.GetAxis("Mouse X") * mouseSensitivity;
         cam.rotation = Quaternion.Euler(pitch, yaw, 0f);
         cam.position = transform.position + Vector3.up * cameraHeight;
     }
@@ -141,34 +127,44 @@ public class SimpleMove : MonoBehaviour
         animator.SetLayerWeight(1, Mathf.MoveTowards(current, aiming ? 1f : 0f, Time.deltaTime * 6f));
     }
 
-void UpdateAnimator()
-{
-    if (animator == null) return;
+    // ─── ANIMATOR ───────────────────────────────────────
 
-    bool moving = new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")).sqrMagnitude > 0.01f;
-    bool grounded = cc.isGrounded;
+    void UpdateAnimator()
+    {
+        if (animator == null) return;
 
-    SetBoolIfExists(IsMoveHash, moving && grounded);
-    SetBoolIfExists(GroundedHash, grounded);
-    SetFloatIfExists(VerticalHash, velocity.y);
-}
+        bool moving = new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")).sqrMagnitude > 0.01f;
+        bool grounded = cc.isGrounded;
 
-bool HasParam(int hash)
-{
-    foreach (AnimatorControllerParameter p in animator.parameters)
-        if (p.nameHash == hash) return true;
-    return false;
-}
+        SetBoolIfExists(IsMoveHash, moving && grounded);
+        SetBoolIfExists(GroundedHash, grounded);
+        SetFloatIfExists(VerticalHash, velocity.y);
+    }
 
-void SetBoolIfExists(int hash, bool value)
-{
-    if (HasParam(hash)) animator.SetBool(hash, value);
-}
+    bool HasParam(int hash)
+    {
+        foreach (AnimatorControllerParameter p in animator.parameters)
+            if (p.nameHash == hash) return true;
+        return false;
+    }
 
-void SetFloatIfExists(int hash, float value)
-{
-    if (HasParam(hash)) animator.SetFloat(hash, value);
-}
+    void SetBoolIfExists(int hash, bool value)
+    {
+        if (HasParam(hash)) animator.SetBool(hash, value);
+    }
+
+    void SetFloatIfExists(int hash, float value)
+    {
+        if (HasParam(hash)) animator.SetFloat(hash, value);
+    }
+
+    // ─── HELPERS ────────────────────────────────────────
+
+    void SetCursor(bool locked)
+    {
+        Cursor.lockState = locked ? CursorLockMode.Locked : CursorLockMode.None;
+        Cursor.visible = !locked;
+    }
 
     static bool IsValid(Vector3 v) =>
         !float.IsNaN(v.x) && !float.IsNaN(v.y) && !float.IsNaN(v.z) &&
